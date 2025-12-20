@@ -122,3 +122,7 @@ temp/
 
 # Electron
 /dist_electron
+/release
+
+# macOS
+.DS_Store
