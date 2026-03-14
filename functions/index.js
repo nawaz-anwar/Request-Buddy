@@ -1,14 +1,24 @@
 /**
- * ⚠️ DEVELOPMENT MODE ONLY
- * SendGrid API key is hardcoded for Firebase Spark (free) plan.
- * Replace with Secret Manager when upgrading to Blaze plan.
+ * ⚠️ IMPORTANT: API Key Configuration
+ * 
+ * For local development:
+ * Set SENDGRID_API_KEY in your .env file or Firebase Functions config
+ * 
+ * For production:
+ * Use Firebase Functions config or Secret Manager:
+ * firebase functions:config:set sendgrid.api_key="YOUR_KEY"
  */
 
 const { onCall } = require("firebase-functions/v2/https");
 const sgMail = require("@sendgrid/mail");
 
-// Hardcoded API key for Spark plan (temporary)
-const SENDGRID_API_KEY = "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";
+// Get API key from environment variable or Firebase config
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "YOUR_SENDGRID_API_KEY_HERE";
+
+if (SENDGRID_API_KEY === "YOUR_SENDGRID_API_KEY_HERE") {
+  console.warn("⚠️  SendGrid API key not configured. Email sending will fail.");
+  console.warn("Set SENDGRID_API_KEY environment variable or use Firebase Functions config.");
+}
 
 sgMail.setApiKey(SENDGRID_API_KEY);
 
