@@ -210,6 +210,30 @@ export const useWorkspaceInviteStore = create((set, get) => ({
     }
   },
 
+  // Delete workspace invitation (FEATURE 3)
+  deleteInvitation: async (inviteId) => {
+    set({ loading: true })
+    try {
+      console.log('InviteStore: Deleting invitation:', inviteId)
+
+      const inviteRef = doc(db, 'workspaceInvites', inviteId)
+      await updateDoc(inviteRef, {
+        status: 'deleted',
+        deletedAt: serverTimestamp()
+      })
+
+      console.log('InviteStore: Invitation deleted successfully')
+      toast.success('Invitation deleted')
+      return true
+    } catch (error) {
+      console.error('InviteStore: Failed to delete invitation:', error)
+      toast.error(error.message || 'Failed to delete invitation')
+      throw error
+    } finally {
+      set({ loading: false })
+    }
+  },
+
   // Cancel/revoke invitation (admin only)
   cancelInvitation: async (inviteId) => {
     set({ loading: true })

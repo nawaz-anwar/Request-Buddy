@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { useWorkspaceInviteStore } from '../../stores/workspaceInviteStore'
+import { firebaseUserService } from '../../services/firebaseUserService'
 
 const ROLES = {
   admin: {
@@ -63,15 +64,60 @@ export default function MemberManagementModal({ isOpen, workspace, onClose }) {
 
   // Load member details and pending invites when workspace changes
   useEffect(() => {
-    if (workspace?.members) {
-      const memberList = Object.entries(workspace.members).map(([uid, role]) => ({
-        uid,
-        role,
-        email: uid === user?.uid ? user.email : `user-${uid.slice(0, 8)}@example.com`, // Show current user's real email
-        isOwner: uid === workspace.ownerId
-      }))
-      setMembers(memberList)
+    const fetchMemberProfiles = async () => {
+      if (!workspace?.members) return
+      
+      setLoading(true)
+      try {
+        // Get all member UIDs
+        const memberUids = Object.keys(workspace.members)
+        
+        console.log('🔍 Fetching profiles for', memberUids.length, 'members')
+        
+        // Fetch user profiles in batch
+        const userProfiles = await firebaseUserService.getUserProfiles(memberUids)
+        
+        console.log('✅ Fetched', userProfiles.length, 'user profiles')
+        
+        // Create a map of uid -> profile for quick lookup
+        const profileMap = {}
+        userProfiles.forEach(profile => {
+          profileMap[profile.uid] = profile
+        })
+        
+        // Map members with their actual profile data
+        const memberList = memberUids.map(uid => {
+          const profile = profileMap[uid]
+          return {
+            uid,
+            role: workspace.members[uid],
+            email: profile?.email || `user-${uid.slice(0, 8)}@example.com`, // Fallback to placeholder if profile not found
+            displayName: profile?.displayName || null,
+            photoURL: profile?.photoURL || null,
+            isOwner: uid === workspace.ownerId
+          }
+        })
+        
+        console.log('📋 Member list with profiles:', memberList)
+        setMembers(memberList)
+      } catch (error) {
+        console.error('❌ Failed to fetch member profiles:', error)
+        // Fallback to placeholder emails on error
+        const memberList = Object.entries(workspace.members).map(([uid, role]) => ({
+          uid,
+          role,
+          email: uid === user?.uid ? user.email : `user-${uid.slice(0, 8)}@example.com`,
+          displayName: null,
+          photoURL: null,
+          isOwner: uid === workspace.ownerId
+        }))
+        setMembers(memberList)
+      } finally {
+        setLoading(false)
+      }
     }
+
+    fetchMemberProfiles()
 
     if (workspace?.id) {
       const invites = getPendingInvitesForWorkspace(workspace.id)
@@ -293,16 +339,24 @@ export default function MemberManagementModal({ isOpen, workspace, onClose }) {
                       className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg"
                     >
                       <div className="flex items-center space-x-3">
-                        <div className="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                          <span className="text-sm font-semibold text-white">
-                            {member.email.charAt(0).toUpperCase()}
-                          </span>
+                        <div className="h-10 w-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center overflow-hidden">
+                          {member.photoURL ? (
+                            <img 
+                              src={member.photoURL} 
+                              alt={member.displayName || member.email}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-sm font-semibold text-white">
+                              {(member.displayName || member.email).charAt(0).toUpperCase()}
+                            </span>
+                          )}
                         </div>
                         
                         <div>
                           <div className="flex items-center space-x-2">
                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              {member.email}
+                              {member.displayName || member.email}
                             </p>
                             {member.isOwner && (
                               <Crown className="h-4 w-4 text-yellow-500" title="Workspace Owner" />
@@ -311,6 +365,12 @@ export default function MemberManagementModal({ isOpen, workspace, onClose }) {
                               <span className="text-xs text-gray-500 dark:text-gray-400">(You)</span>
                             )}
                           </div>
+                          
+                          {member.displayName && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {member.email}
+                            </p>
+                          )}
                           
                           <div className="flex items-center space-x-2 mt-1">
                             <div className={`flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-medium ${roleInfo.bgColor} ${roleInfo.color}`}>

@@ -40,6 +40,8 @@ import { testAIButtonVisibility, simulateAIButtonClick, testAIModalVisibility, a
 import { runAllLayoutTests, verifyLayoutStructure, verifyActionBar, testRightSidebarToggle, testAIButtonDropdown, verifyResponsePanel } from '../utils/testLayoutVerification'
 import { setTestResponseInApp, setLargeTestResponse, createTestResponse, createLargeTestResponse } from '../utils/createTestResponse'
 import { runCompleteLayoutTest } from '../utils/completeLayoutTest'
+import { verifyCookieSystem, testLoginFlow } from '../utils/verifyCookieSystem'
+import { testInvitationUX, simulateNewInvitation, clearSeenInvitations, listSeenInvitations } from '../utils/testInvitationUX'
 import { useAIStore } from '../stores/aiStore'
 
 export default function SimpleDashboard() {
@@ -77,6 +79,40 @@ export default function SimpleDashboard() {
     const saved = localStorage.getItem('requestBuddy_rightSidebarOpen')
     return saved === 'true'
   })
+  const [responseHeight, setResponseHeight] = useState(() => {
+    const saved = localStorage.getItem('requestBuddy_responseHeight')
+    return saved ? parseInt(saved) : 300
+  })
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Handle divider drag for resizing response panel
+  const handleDividerMouseDown = (e) => {
+    e.preventDefault()
+    setIsDragging(true)
+
+    const startY = e.clientY
+    const startHeight = responseHeight
+
+    const handleMouseMove = (moveEvent) => {
+      const deltaY = startY - moveEvent.clientY
+      const newHeight = Math.max(150, Math.min(startHeight + deltaY, window.innerHeight - 400))
+      setResponseHeight(newHeight)
+      localStorage.setItem('requestBuddy_responseHeight', newHeight.toString())
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
 
   // Initialize user store
   useEffect(() => {
@@ -106,12 +142,31 @@ export default function SimpleDashboard() {
     }
   }, [user?.uid, user?.email, subscribeToEnvironments, subscribeToHistory, subscribeToPendingInvites, cleanup, cleanupHistory, cleanupInvites])
 
-  // Show invitations modal if there are pending invites
+  // FEATURE 1 & 2: Show invitations modal only for NEW invitations
   useEffect(() => {
-    if (pendingInvites.length > 0 && !showInvitationsModal) {
+    if (pendingInvites.length === 0) return
+
+    // Get seen invitations from localStorage
+    const seenInvitationsStr = localStorage.getItem('requestBuddy_seenInvitations')
+    const seenInvitations = seenInvitationsStr ? JSON.parse(seenInvitationsStr) : {}
+
+    // Check if there are any NEW invitations (not seen before)
+    const hasNewInvitations = pendingInvites.some(invite => {
+      return !seenInvitations[invite.id]
+    })
+
+    // Only show modal if there are NEW invitations
+    if (hasNewInvitations) {
       setShowInvitationsModal(true)
+
+      // Mark all current invitations as seen
+      const updatedSeenInvitations = { ...seenInvitations }
+      pendingInvites.forEach(invite => {
+        updatedSeenInvitations[invite.id] = true
+      })
+      localStorage.setItem('requestBuddy_seenInvitations', JSON.stringify(updatedSeenInvitations))
     }
-  }, [pendingInvites.length, showInvitationsModal])
+  }, [pendingInvites])
 
   // Add test functions to window for debugging
   useEffect(() => {
@@ -161,6 +216,12 @@ export default function SimpleDashboard() {
     window.createTestResponse = createTestResponse
     window.createLargeTestResponse = createLargeTestResponse
     window.runCompleteLayoutTest = runCompleteLayoutTest
+    window.verifyCookieSystem = verifyCookieSystem
+    window.testLoginFlow = testLoginFlow
+    window.testInvitationUX = testInvitationUX
+    window.simulateNewInvitation = simulateNewInvitation
+    window.clearSeenInvitations = clearSeenInvitations
+    window.listSeenInvitations = listSeenInvitations
     window.useWorkspaceStore = useWorkspaceStore
     window.useAuthStore = useAuthStore
     window.useCollectionStore = useCollectionStore
@@ -212,6 +273,12 @@ export default function SimpleDashboard() {
     console.log('- window.createTestResponse() ← NEW! Create test response object')
     console.log('- window.createLargeTestResponse() ← NEW! Create large test response object')
     console.log('- window.runCompleteLayoutTest() ← NEW! Run complete layout test suite')
+    console.log('- window.verifyCookieSystem() ← NEW! Verify cookie system functionality')
+    console.log('- window.testLoginFlow() ← NEW! Test login flow with cookies')
+    console.log('- window.testInvitationUX() ← NEW! Test invitation UX improvements')
+    console.log('- window.simulateNewInvitation() ← NEW! Simulate new invitation')
+    console.log('- window.clearSeenInvitations() ← NEW! Clear seen invitations')
+    console.log('- window.listSeenInvitations() ← NEW! List seen invitations')
   }, [])
 
   // Handle keyboard shortcuts for tabs
@@ -565,19 +632,52 @@ export default function SimpleDashboard() {
           <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             {/* Request Editor */}
             {activeTab ? (
-              <div className={`${response ? 'flex-1 min-h-0' : 'flex-1'} bg-white dark:bg-gray-800 overflow-hidden`}>
-                <RequestEditor 
-                  request={{
-                    ...activeTab,
-                    onChange: (updates) => updateTab(activeTab.id, updates)
+              <>
+                <div 
+                  className="bg-white dark:bg-gray-800 overflow-hidden"
+                  style={{ 
+                    height: response ? `calc(100% - ${responseHeight}px)` : '100%',
+                    minHeight: response ? '200px' : 'auto'
                   }}
-                  response={response}
-                  onSendRequest={handleSendRequest}
-                  onSave={() => saveTab(activeTab.id)}
-                  showRightSidebar={showRightSidebar}
-                  onToggleRightSidebar={() => setShowRightSidebar(!showRightSidebar)}
-                />
-              </div>
+                >
+                  <RequestEditor 
+                    request={{
+                      ...activeTab,
+                      onChange: (updates) => updateTab(activeTab.id, updates)
+                    }}
+                    response={response}
+                    onSendRequest={handleSendRequest}
+                    onSave={() => saveTab(activeTab.id)}
+                    showRightSidebar={showRightSidebar}
+                    onToggleRightSidebar={() => setShowRightSidebar(!showRightSidebar)}
+                  />
+                </div>
+
+                {/* Resizable Divider */}
+                {response && (
+                  <div
+                    className="h-1 bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 dark:hover:bg-blue-600 cursor-row-resize transition-colors duration-200 relative group"
+                    onMouseDown={handleDividerMouseDown}
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-12 h-1 bg-gray-400 dark:bg-gray-500 rounded-full group-hover:bg-blue-500 dark:group-hover:bg-blue-400 transition-colors duration-200"></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Response Viewer */}
+                {response && (
+                  <div 
+                    className="bg-white dark:bg-gray-800 overflow-hidden"
+                    style={{ 
+                      height: `${responseHeight}px`,
+                      minHeight: '150px'
+                    }}
+                  >
+                    <ResponseViewer response={response} />
+                  </div>
+                )}
+              </>
             ) : (
               <div className="flex-1 flex items-center justify-center bg-white dark:bg-gray-800">
                 <div className="text-center">
@@ -598,13 +698,6 @@ export default function SimpleDashboard() {
                     <span>New Request</span>
                   </button>
                 </div>
-              </div>
-            )}
-
-            {/* Response Viewer */}
-            {response && (
-              <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex-1 min-h-0 max-h-96 overflow-hidden">
-                <ResponseViewer response={response} />
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import ParamsTab from './ParamsTab'
 import HeadersTab from './HeadersTab'
 import BodyTab from './BodyTab'
 import AuthTab from './AuthTab'
+import CookiesTab from './CookiesTab'
 import VariableHint from '../environments/VariableHint'
 import AIButton from '../ai/AIButton'
 import AIResultPanel from '../ai/AIResultPanel'
@@ -234,10 +235,7 @@ export default function RequestEditor({
               response={response}
               onAIAction={(actionId, req, res) => {
                 console.log("AI Action triggered:", actionId)
-                // Open right sidebar and show AI content
-                if (!showRightSidebar && onToggleRightSidebar) {
-                  onToggleRightSidebar()
-                }
+                // Show AI result without auto-opening right sidebar
                 setAIResult(`AI Action: ${actionId}\n\nThis would normally call the Gemini API and return results.\n\nRequest: ${req?.method} ${req?.url}\nResponse Status: ${res?.status || 'No response yet'}`)
                 setAIAction(actionId)
               }}
@@ -262,16 +260,11 @@ export default function RequestEditor({
         
         {/* Variable hint for URL */}
         <VariableHint text={request.url} />
-        
-        {/* Keyboard shortcut hint */}
-        <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-750 px-3 py-2 rounded-lg">
-          💡 Press <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 rounded text-xs font-mono">Cmd+Enter</kbd> (Mac) or <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 rounded text-xs font-mono">Ctrl+Enter</kbd> (Windows) to send
-        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
-        {['params', 'headers', 'body', 'auth'].map(tab => (
+        {['params', 'headers', 'body', 'auth', 'cookies'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -330,6 +323,17 @@ export default function RequestEditor({
           <AuthTab
             auth={request.auth || { type: 'none', bearerToken: '', basic: { username: '', password: '' } }}
             onChange={(auth) => handleFieldChange('auth', auth)}
+          />
+        )}
+        
+        {activeTab === 'cookies' && (
+          <CookiesTab
+            url={request.url}
+            onChange={(cookieData) => {
+              // CookiesTab manages its own state via cookieStore
+              // No need to update request object
+              console.log('Cookies updated:', cookieData)
+            }}
           />
         )}
       </div>

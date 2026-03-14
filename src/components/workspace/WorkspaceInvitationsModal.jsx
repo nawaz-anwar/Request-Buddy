@@ -6,10 +6,12 @@ import {
   Clock, 
   UserPlus,
   AlertCircle,
-  Trash2
+  Trash2,
+  User
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useWorkspaceInviteStore } from '../../stores/workspaceInviteStore'
+import { firebaseUserService } from '../../services/firebaseUserService'
 
 export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
   const { user } = useAuthStore()
@@ -17,10 +19,47 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
     pendingInvites, 
     acceptInvitation, 
     declineInvitation,
+    deleteInvitation,
     loading 
   } = useWorkspaceInviteStore()
 
   const [processingInvite, setProcessingInvite] = useState(null)
+  const [inviterProfiles, setInviterProfiles] = useState({})
+
+  // FEATURE 4: Fetch inviter profiles
+  useEffect(() => {
+    const fetchInviterProfiles = async () => {
+      if (pendingInvites.length === 0) return
+
+      try {
+        // Get unique inviter user IDs
+        const inviterIds = [...new Set(
+          pendingInvites
+            .map(invite => invite.invitedBy)
+            .filter(Boolean)
+        )]
+
+        if (inviterIds.length === 0) return
+
+        // Fetch profiles in batch
+        const profiles = await firebaseUserService.getUserProfiles(inviterIds)
+        
+        // Create a map of userId -> profile
+        const profileMap = {}
+        profiles.forEach(profile => {
+          profileMap[profile.uid] = profile
+        })
+
+        setInviterProfiles(profileMap)
+      } catch (error) {
+        console.error('Failed to fetch inviter profiles:', error)
+      }
+    }
+
+    if (isOpen) {
+      fetchInviterProfiles()
+    }
+  }, [pendingInvites, isOpen])
 
   const handleAcceptInvite = async (invite) => {
     if (!user?.uid) return
@@ -48,16 +87,44 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
     }
   }
 
+  // FEATURE 3: Delete invitation
+  const handleDeleteInvite = async (invite) => {
+    setProcessingInvite(invite.id)
+    try {
+      await deleteInvitation(invite.id)
+    } catch (error) {
+      console.error('Failed to delete invitation:', error)
+    } finally {
+      setProcessingInvite(null)
+    }
+  }
+
   const formatDate = (timestamp) => {
     if (!timestamp) return 'Unknown'
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
     return date.toLocaleDateString()
   }
 
+  // FEATURE 5: Check if invitation is expired
   const isExpired = (expiresAt) => {
     if (!expiresAt) return false
     const expiry = expiresAt.toDate ? expiresAt.toDate() : new Date(expiresAt)
     return expiry < new Date()
+  }
+
+  // FEATURE 4: Get inviter display name
+  const getInviterName = (invite) => {
+    if (!invite.invitedBy) {
+      return invite.inviterEmail || 'unknown@example.com'
+    }
+
+    const profile = inviterProfiles[invite.invitedBy]
+    if (profile) {
+      // Prefer displayName, fallback to email
+      return profile.displayName || profile.email || invite.inviterEmail || 'Unknown'
+    }
+
+    return invite.inviterEmail || 'Loading...'
   }
 
   if (!isOpen) return null
@@ -111,6 +178,7 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
                 {pendingInvites.map((invite) => {
                   const expired = isExpired(invite.expiresAt)
                   const processing = processingInvite === invite.id
+                  const inviterName = getInviterName(invite)
 
                   return (
                     <div
@@ -131,9 +199,11 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
                               <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
                                 {invite.workspaceName}
                               </h4>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">
-                                Invited by {invite.inviterEmail}
-                              </p>
+                              {/* FEATURE 4: Show inviter name with profile */}
+                              <div className="flex items-center space-x-1 text-xs text-gray-500 dark:text-gray-400">
+                                <User className="h-3 w-3" />
+                                <span>Invited by {inviterName}</span>
+                              </div>
                             </div>
                           </div>
 
@@ -151,6 +221,7 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
                             }`}>
                               {invite.role.charAt(0).toUpperCase() + invite.role.slice(1)}
                             </div>
+                            {/* FEATURE 5: Show expired indicator */}
                             {expired && (
                               <div className="flex items-center space-x-1 text-red-500">
                                 <AlertCircle className="h-3 w-3" />
@@ -159,32 +230,47 @@ export default function WorkspaceInvitationsModal({ isOpen, onClose }) {
                             )}
                           </div>
 
+                          {/* FEATURE 5: Show expiration message */}
                           {expired && (
-                            <p className="text-xs text-red-600 dark:text-red-400 mb-3">
+                            <p className="text-xs text-red-600 dark:text-red-400 mb-3 bg-red-100 dark:bg-red-900/20 p-2 rounded">
                               This invitation has expired. Please ask the workspace admin to send a new invitation.
                             </p>
                           )}
                         </div>
 
-                        {!expired && (
-                          <div className="flex items-center space-x-2 ml-4">
-                            <button
-                              onClick={() => handleDeclineInvite(invite)}
-                              disabled={processing}
-                              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 rounded-md hover:border-red-300 dark:hover:border-red-600 transition-colors disabled:opacity-50"
-                            >
-                              {processing ? 'Processing...' : 'Decline'}
-                            </button>
-                            <button
-                              onClick={() => handleAcceptInvite(invite)}
-                              disabled={processing}
-                              className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 flex items-center space-x-1"
-                            >
-                              <Check className="h-3 w-3" />
-                              <span>{processing ? 'Joining...' : 'Accept'}</span>
-                            </button>
-                          </div>
-                        )}
+                        {/* Action Buttons */}
+                        <div className="flex items-center space-x-2 ml-4">
+                          {/* FEATURE 3: Delete button (always available) */}
+                          <button
+                            onClick={() => handleDeleteInvite(invite)}
+                            disabled={processing}
+                            className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                            title="Delete invitation"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+
+                          {/* FEATURE 5: Disable Accept button if expired */}
+                          {!expired && (
+                            <>
+                              <button
+                                onClick={() => handleDeclineInvite(invite)}
+                                disabled={processing}
+                                className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 rounded-md hover:border-red-300 dark:hover:border-red-600 transition-colors disabled:opacity-50"
+                              >
+                                {processing ? 'Processing...' : 'Decline'}
+                              </button>
+                              <button
+                                onClick={() => handleAcceptInvite(invite)}
+                                disabled={processing}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 flex items-center space-x-1"
+                              >
+                                <Check className="h-3 w-3" />
+                                <span>{processing ? 'Joining...' : 'Accept'}</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )

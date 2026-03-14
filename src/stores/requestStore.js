@@ -89,6 +89,66 @@ export const useRequestStore = create((set, get) => ({
     }
   },
 
+  // Move/reorder request (for drag and drop)
+  moveRequest: async (requestId, newCollectionId, newFolderId = null, newOrder = null) => {
+    try {
+      const updates = {
+        collectionId: newCollectionId,
+        folderId: newFolderId,
+        updatedAt: new Date()
+      }
+      
+      // Add order if provided
+      if (newOrder !== null) {
+        updates.order = newOrder
+      }
+      
+      await updateDoc(doc(db, 'requests', requestId), updates)
+      
+      // Update local state immediately for better UX
+      const requests = get().requests.map(request => 
+        request.id === requestId 
+          ? { ...request, ...updates }
+          : request
+      )
+      set({ requests })
+      
+      console.log('Request moved successfully:', requestId, 'to collection:', newCollectionId, 'folder:', newFolderId)
+    } catch (error) {
+      console.error('Failed to move request:', error)
+      toast.error('Failed to move request')
+    }
+  },
+
+  // Reorder requests within the same container
+  reorderRequests: async (requestIds, containerId, containerType) => {
+    try {
+      // Update order for each request
+      const updatePromises = requestIds.map((requestId, index) => 
+        updateDoc(doc(db, 'requests', requestId), {
+          order: index,
+          updatedAt: new Date()
+        })
+      )
+      
+      await Promise.all(updatePromises)
+      
+      // Update local state
+      const requests = get().requests.map(request => {
+        const newIndex = requestIds.indexOf(request.id)
+        return newIndex !== -1 
+          ? { ...request, order: newIndex, updatedAt: new Date() }
+          : request
+      })
+      set({ requests })
+      
+      console.log('Requests reordered successfully in', containerType, containerId)
+    } catch (error) {
+      console.error('Failed to reorder requests:', error)
+      toast.error('Failed to reorder requests')
+    }
+  },
+
   // Delete request
   deleteRequest: async (id) => {
     try {

@@ -1,0 +1,31 @@
+appId: com.requestbuddy.app
+productName: Request Buddy
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - electron/**/*
+  - node_modules/**/*
+  - package.json
+extraMetadata:
+  main: electron/main.js
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: assets/icon.icns
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: assets/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import SidebarToggle from './SidebarToggle'
 import CurlGenerator from './CurlGenerator'
-import CodeSnippetGenerator from './CodeSnippetGenerator'
 import RequestInfo from './RequestInfo'
 import CopyTools from './CopyTools'
 
@@ -12,7 +11,7 @@ export default function RightSidebar({
   isOpen = false, 
   onToggle 
 }) {
-  const [activeTab, setActiveTab] = useState('code')
+  const [activeTab, setActiveTab] = useState('curl')
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -20,13 +19,6 @@ export default function RightSidebar({
       if (!e.metaKey && !e.ctrlKey) return
 
       switch (e.key) {
-        case 'C':
-          if (e.shiftKey) {
-            e.preventDefault()
-            setActiveTab('code')
-            if (!isOpen) onToggle()
-          }
-          break
         case 'U':
           if (e.shiftKey) {
             e.preventDefault()
@@ -68,8 +60,11 @@ export default function RightSidebar({
   // Load saved state on mount
   useEffect(() => {
     const savedTab = localStorage.getItem('requestBuddy_rightSidebarTab')
-    if (savedTab && ['code', 'curl', 'info', 'copy'].includes(savedTab)) {
+    if (savedTab && ['curl', 'info', 'copy'].includes(savedTab)) {
       setActiveTab(savedTab)
+    } else {
+      // Default to curl if saved tab was 'code' or invalid
+      setActiveTab('curl')
     }
   }, [])
 
@@ -96,10 +91,9 @@ export default function RightSidebar({
             environmentVariables={environmentVariables} 
           />
         )
-      case 'code':
       default:
         return (
-          <CodeSnippetGenerator 
+          <CurlGenerator 
             request={request} 
             environmentVariables={environmentVariables} 
           />
@@ -113,7 +107,6 @@ export default function RightSidebar({
       <div className="flex items-center border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-2">
         <div className="flex space-x-1 flex-1">
           {[
-            { id: 'code', label: 'Code', shortcut: 'Cmd+Shift+C' },
             { id: 'curl', label: 'cURL', shortcut: 'Cmd+Shift+U' },
             { id: 'info', label: 'Info', shortcut: 'Cmd+Shift+I' },
             { id: 'copy', label: 'Export', shortcut: 'Cmd+Shift+E' }

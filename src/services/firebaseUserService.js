@@ -4,7 +4,7 @@ import {
   reauthenticateWithCredential, 
   EmailAuthProvider 
 } from 'firebase/auth'
-import { doc, setDoc, updateDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, updateDoc, getDoc, getDocs, collection, query, where, documentId, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import { storageService } from './storageService'
 
@@ -23,6 +23,47 @@ export const firebaseUserService = {
     } catch (error) {
       console.error('Error getting user profile:', error)
       throw new Error('Failed to get user profile')
+    }
+  },
+
+  // Get multiple user profiles in batch (for performance)
+  getUserProfiles: async (uids) => {
+    if (!uids || uids.length === 0) {
+      return []
+    }
+
+    try {
+      // Firestore 'in' queries support up to 10 items at a time
+      // Split into chunks if needed
+      const chunkSize = 10
+      const chunks = []
+      
+      for (let i = 0; i < uids.length; i += chunkSize) {
+        chunks.push(uids.slice(i, i + chunkSize))
+      }
+
+      const allProfiles = []
+
+      for (const chunk of chunks) {
+        const q = query(
+          collection(db, 'users'),
+          where(documentId(), 'in', chunk)
+        )
+        
+        const querySnapshot = await getDocs(q)
+        const profiles = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          uid: doc.id,
+          ...doc.data()
+        }))
+        
+        allProfiles.push(...profiles)
+      }
+
+      return allProfiles
+    } catch (error) {
+      console.error('Error getting user profiles:', error)
+      throw new Error('Failed to get user profiles')
     }
   },
 

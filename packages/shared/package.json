@@ -1,0 +1,13 @@
+{
+  "name": "@request-buddy/shared",
+  "version": "1.0.0",
+  "description": "Shared types and utilities for Request Buddy",
+  "main": "src/index.ts",
+  "private": true,
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.1.3"
+  }
+}

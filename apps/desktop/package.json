@@ -1,0 +1,69 @@
+{
+  "name": "@request-buddy/desktop",
+  "version": "1.0.0",
+  "description": "Request Buddy Desktop Application",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "electron:dev": "concurrently \"npm run dev --workspace=apps/web\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "npm run build --workspace=apps/web && electron-builder",
+    "preview": "npm run build --workspace=apps/web && electron .",
+    "release": "npm run build --workspace=apps/web && electron-builder --publish=never"
+  },
+  "build": {
+    "appId": "com.requestbuddy.app",
+    "productName": "Request Buddy",
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      "../web/dist/**/*",
+      "electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "wait-on": "^7.2.0"
+  }
+}
