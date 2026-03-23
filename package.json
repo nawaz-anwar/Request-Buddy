@@ -11,7 +11,10 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:preview": "npm run build && electron .",
-    "release": "npm run build && electron-builder --publish=never"
+    "release": "npm run build && electron-builder --publish=never",
+    "release:mac": "./scripts/build-mac-release.sh",
+    "postbuild:mac": "npm run sign-mac",
+    "sign-mac": "node scripts/sign-mac.js"
   },
   "build": {
     "appId": "com.requestbuddy.app",
@@ -25,18 +28,21 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "afterPack": "scripts/after-pack.js",
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
+          "arch": ["x64", "arm64"]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "identity": null,
+      "gatekeeperAssess": false,
+      "hardenedRuntime": false,
+      "entitlements": null,
+      "entitlementsInherit": null
     },
     "win": {
       "target": [

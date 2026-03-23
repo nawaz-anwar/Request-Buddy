@@ -7,31 +7,30 @@ import { useHistoryStore } from '../stores/historyStore'
 
 export default function DashboardPage() {
   const { user } = useAuthStore()
-  const { subscribeToCollections, subscribeToFolders } = useCollectionStore()
-  const { subscribeToRequests } = useRequestStore()
+  const { loadCollections, loadFolders } = useCollectionStore()
+  const { loadRequests } = useRequestStore()
   const { subscribeToHistory } = useHistoryStore()
 
   useEffect(() => {
     if (!user) return
 
-    console.log('DashboardPage: Initializing collections for user:', user.uid)
+    console.log('DashboardPage: Loading data for user:', user.uid)
     
     // Use user ID as workspace ID for now (simpler approach)
     const workspaceId = user.uid
     
-    // Subscribe to all data
-    const unsubscribeCollections = subscribeToCollections(workspaceId)
-    const unsubscribeFolders = subscribeToFolders(workspaceId)
-    const unsubscribeRequests = subscribeToRequests(workspaceId)
+    // Load data (cache-first, no real-time listeners)
+    loadCollections(workspaceId)
+    loadFolders(workspaceId)
+    loadRequests(workspaceId)
+    
+    // History still uses real-time listener for live updates
     const unsubscribeHistory = subscribeToHistory(workspaceId)
 
     return () => {
-      if (unsubscribeCollections) unsubscribeCollections()
-      if (unsubscribeFolders) unsubscribeFolders()
-      if (unsubscribeRequests) unsubscribeRequests()
       if (unsubscribeHistory) unsubscribeHistory()
     }
-  }, [user, subscribeToCollections, subscribeToFolders, subscribeToRequests, subscribeToHistory])
+  }, [user, loadCollections, loadFolders, loadRequests, subscribeToHistory])
 
   return <SimpleDashboard />
 }

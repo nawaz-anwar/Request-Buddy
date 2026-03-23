@@ -489,3 +489,39 @@ export const downloadJsonFile = (data, filename) => {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+/**
+ * Export a single request as Postman Collection v2.1
+ */
+export const exportSingleRequest = (request) => {
+  console.log('Exporting single request:', request.name)
+  
+  try {
+    // Convert request to Postman format
+    const postmanRequest = convertRequestToPostman(request)
+    
+    // Build Postman collection structure with single request
+    const postmanCollection = {
+      info: {
+        _postman_id: uuidv4(),
+        name: `Exported Request - ${request.name}`,
+        description: `Single request exported from Request Buddy`,
+        schema: POSTMAN_SCHEMA_V21
+      },
+      item: [postmanRequest]
+    }
+    
+    // Generate filename
+    const filename = `request-${request.name.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.json`
+    
+    console.log('Single request export completed successfully')
+    return {
+      success: true,
+      collection: postmanCollection,
+      filename
+    }
+  } catch (error) {
+    console.error('Failed to export single request:', error)
+    throw error
+  }
+}

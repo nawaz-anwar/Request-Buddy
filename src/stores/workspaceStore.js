@@ -67,10 +67,21 @@ export const useWorkspaceStore = create((set, get) => ({
       
       set({ workspaces: userWorkspaces })
       
-      // Set first workspace as current if none selected
+      // Try to restore last workspace from localStorage
+      const lastWorkspaceId = localStorage.getItem('lastWorkspaceId')
+      const lastWorkspace = lastWorkspaceId 
+        ? userWorkspaces.find(w => w.id === lastWorkspaceId)
+        : null
+      
+      // Set current workspace
       if (!get().currentWorkspace && userWorkspaces.length > 0) {
-        console.log('🎯 Setting current workspace to:', userWorkspaces[0].name)
-        set({ currentWorkspace: userWorkspaces[0] })
+        if (lastWorkspace) {
+          console.log('🔄 Restoring last workspace from localStorage:', lastWorkspace.name)
+          set({ currentWorkspace: lastWorkspace })
+        } else {
+          console.log('🎯 Setting current workspace to:', userWorkspaces[0].name)
+          set({ currentWorkspace: userWorkspaces[0] })
+        }
       }
     })
 
@@ -178,6 +189,11 @@ export const useWorkspaceStore = create((set, get) => ({
   // Set current workspace
   setCurrentWorkspace: (workspace) => {
     set({ currentWorkspace: workspace })
+    // Save to localStorage for persistence
+    if (workspace?.id) {
+      localStorage.setItem('lastWorkspaceId', workspace.id)
+      console.log('💾 Saved last workspace to localStorage:', workspace.id)
+    }
   },
 
   // Get user role in workspace
@@ -323,6 +339,9 @@ export const useWorkspaceStore = create((set, get) => ({
     if (get().unsubscribe) {
       get().unsubscribe()
     }
+    // Clear localStorage on logout
+    localStorage.removeItem('lastWorkspaceId')
+    console.log('🧹 Cleared last workspace from localStorage')
     set({ workspaces: [], currentWorkspace: null, unsubscribe: null, migrationComplete: false })
   }
 }))

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Zap, Clock, Users, Mail } from 'lucide-react'
+import { Zap, Clock, Users, Mail, RefreshCw } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { useUserStore } from '../stores/userStore'
 import { useEnvironmentStore } from '../stores/environmentStore'
@@ -42,12 +42,14 @@ import { setTestResponseInApp, setLargeTestResponse, createTestResponse, createL
 import { runCompleteLayoutTest } from '../utils/completeLayoutTest'
 import { verifyCookieSystem, testLoginFlow } from '../utils/verifyCookieSystem'
 import { testInvitationUX, simulateNewInvitation, clearSeenInvitations, listSeenInvitations } from '../utils/testInvitationUX'
+import { testEnvironmentResolution } from '../utils/testEnvironmentResolution'
 import { useAIStore } from '../stores/aiStore'
 
 export default function SimpleDashboard() {
   const { user } = useAuthStore()
   const { initialize: initializeUserStore, cleanup: cleanupUserStore } = useUserStore()
-  const { subscribeToEnvironments, replaceVariables, cleanup } = useEnvironmentStore()
+  const { subscribeToEnvironments, cleanup } = useEnvironmentStore()
+  const replaceVariables = useEnvironmentStore(state => state.replaceVariables)
   const { 
     tabs, 
     activeTabId, 
@@ -58,8 +60,17 @@ export default function SimpleDashboard() {
     createNewTab, 
     getActiveTab,
     saveTab,
-    duplicateTab
+    duplicateTab,
+    loadRequests,
+    syncRequests,
+    syncing: requestsSyncing
   } = useRequestStore()
+  const { 
+    loadCollections,
+    loadFolders,
+    syncCollections,
+    syncing: collectionsSyncing
+  } = useCollectionStore()
   const { addToHistory, subscribeToHistory, cleanup: cleanupHistory } = useHistoryStore()
   const { currentWorkspace } = useWorkspaceStore()
   const { 
@@ -75,10 +86,7 @@ export default function SimpleDashboard() {
   const [showHistory, setShowHistory] = useState(false)
   const [showMemberModal, setShowMemberModal] = useState(false)
   const [showInvitationsModal, setShowInvitationsModal] = useState(false)
-  const [showRightSidebar, setShowRightSidebar] = useState(() => {
-    const saved = localStorage.getItem('requestBuddy_rightSidebarOpen')
-    return saved === 'true'
-  })
+  const [showRightSidebar, setShowRightSidebar] = useState(false)
   const [responseHeight, setResponseHeight] = useState(() => {
     const saved = localStorage.getItem('requestBuddy_responseHeight')
     return saved ? parseInt(saved) : 300
@@ -219,6 +227,7 @@ export default function SimpleDashboard() {
     window.verifyCookieSystem = verifyCookieSystem
     window.testLoginFlow = testLoginFlow
     window.testInvitationUX = testInvitationUX
+    window.testEnvironmentResolution = testEnvironmentResolution
     window.simulateNewInvitation = simulateNewInvitation
     window.clearSeenInvitations = clearSeenInvitations
     window.listSeenInvitations = listSeenInvitations
@@ -276,6 +285,7 @@ export default function SimpleDashboard() {
     console.log('- window.verifyCookieSystem() ← NEW! Verify cookie system functionality')
     console.log('- window.testLoginFlow() ← NEW! Test login flow with cookies')
     console.log('- window.testInvitationUX() ← NEW! Test invitation UX improvements')
+    console.log('- window.testEnvironmentResolution() ← NEW! Test environment variable resolution')
     console.log('- window.simulateNewInvitation() ← NEW! Simulate new invitation')
     console.log('- window.clearSeenInvitations() ← NEW! Clear seen invitations')
     console.log('- window.listSeenInvitations() ← NEW! List seen invitations')
@@ -328,6 +338,20 @@ export default function SimpleDashboard() {
       window.removeEventListener('edit-environment', handleEditEnvironment)
     }
   }, [])
+
+  // Handle sync data
+  const handleSyncData = async () => {
+    if (!currentWorkspace?.id) return
+    
+    try {
+      await Promise.all([
+        syncCollections(currentWorkspace.id),
+        syncRequests(currentWorkspace.id)
+      ])
+    } catch (error) {
+      console.error('Failed to sync data:', error)
+    }
+  }
 
   const handleRequestSelect = (selectedRequest) => {
     console.log('Opening request in tab:', selectedRequest.name)
@@ -398,31 +422,36 @@ export default function SimpleDashboard() {
       return
     }
 
-    // Validate request before sending
-    const validation = validateRequest(activeTab)
-    if (!validation.isValid) {
-      console.error('Request validation failed:', validation.errors)
-      setResponse({
-        error: validation.errors.join(', '),
-        status: 0,
-        statusText: 'Validation Error',
-        data: { errors: validation.errors },
-        headers: {},
-        time: 0,
-        size: 0,
-        timestamp: new Date().toISOString()
-      })
-      return
-    }
-
     setLoading(true)
     console.log('Sending request:', activeTab.name, activeTab.method, activeTab.url)
 
     try {
       // Process the request with variable replacement
+      const resolvedUrl = replaceVariables(activeTab.url)
+      console.log('🔍 Original URL:', activeTab.url)
+      console.log('🔍 Resolved URL:', resolvedUrl)
+      
+      // Validate AFTER variable resolution
+      const validation = validateRequest({ ...activeTab, url: resolvedUrl })
+      if (!validation.isValid) {
+        console.error('Request validation failed:', validation.errors)
+        setLoading(false)
+        setResponse({
+          error: validation.errors.join(', '),
+          status: 0,
+          statusText: 'Validation Error',
+          data: { errors: validation.errors },
+          headers: {},
+          time: 0,
+          size: 0,
+          timestamp: new Date().toISOString()
+        })
+        return
+      }
+      
       const processedRequest = {
         method: activeTab.method,
-        url: replaceVariables(activeTab.url),
+        url: resolvedUrl,
         headers: {},
         params: {},
         body: activeTab.body ? {
@@ -440,17 +469,22 @@ export default function SimpleDashboard() {
       }
 
       // Process headers with variable replacement
+      console.log('📋 Processing headers:', activeTab.headers)
       Object.entries(activeTab.headers || {}).forEach(([key, value]) => {
+        console.log(`  Header: ${key} =`, value)
         if (typeof value === 'object' && value.enabled !== false) {
           const replacedKey = replaceVariables(key)
           const replacedValue = replaceVariables(value.value || '')
+          console.log(`  → Resolved: ${replacedKey} = ${replacedValue}`)
           processedRequest.headers[replacedKey] = replacedValue
         } else if (typeof value === 'string') {
           const replacedKey = replaceVariables(key)
           const replacedValue = replaceVariables(value)
+          console.log(`  → Resolved: ${replacedKey} = ${replacedValue}`)
           processedRequest.headers[replacedKey] = replacedValue
         }
       })
+      console.log('📋 Final headers:', processedRequest.headers)
 
       // Process params with variable replacement
       Object.entries(activeTab.params || {}).forEach(([key, value]) => {
@@ -562,6 +596,19 @@ export default function SimpleDashboard() {
           <div className="block">
             <WorkspaceSelector />
           </div>
+
+          {/* Sync Data Button */}
+          {currentWorkspace && (
+            <button 
+              onClick={handleSyncData}
+              disabled={collectionsSyncing || requestsSyncing}
+              className="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+              title="Sync workspace data from server"
+            >
+              <RefreshCw className={`h-4 w-4 ${(collectionsSyncing || requestsSyncing) ? 'animate-spin' : ''}`} />
+              <span>{(collectionsSyncing || requestsSyncing) ? 'Syncing...' : 'Sync'}</span>
+            </button>
+          )}
         </div>
 
         <div className="flex items-center space-x-4">

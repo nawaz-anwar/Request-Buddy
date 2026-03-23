@@ -38,7 +38,6 @@ function App() {
       <div className="flex flex-col items-center justify-center h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
         <p className="text-gray-600 dark:text-gray-400 mt-4">Loading Request Buddy...</p>
-        <p className="text-gray-500 dark:text-gray-500 text-sm mt-2">Connecting to Firebase...</p>
       </div>
     )
   }

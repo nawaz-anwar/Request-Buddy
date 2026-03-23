@@ -6,84 +6,151 @@ import {
   updateDoc, 
   deleteDoc, 
   onSnapshot, 
+  getDocs,
   query, 
   where, 
   orderBy 
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import toast from 'react-hot-toast'
+import { saveToCache, loadFromCache, clearCache } from '../utils/localCache'
 
 export const useCollectionStore = create((set, get) => ({
   collections: [],
   folders: [],
   loading: false,
+  syncing: false,
+  lastSync: null,
   unsubscribeCollections: null,
   unsubscribeFolders: null,
 
-  // Subscribe to collections
-  subscribeToCollections: (workspaceId) => {
-    if (get().unsubscribeCollections) {
-      get().unsubscribeCollections()
+  // Load collections (cache-first, no real-time listener)
+  loadCollections: async (workspaceId) => {
+    console.log('CollectionStore: Loading collections for workspace:', workspaceId)
+
+    // Clear existing collections first
+    set({ collections: [] })
+
+    // Try to load from cache first
+    const cachedCollections = loadFromCache(workspaceId, 'collections')
+    if (cachedCollections) {
+      console.log('📦 Using cached collections:', cachedCollections.length)
+      set({ collections: cachedCollections })
+      return cachedCollections
     }
 
-    console.log('CollectionStore: Subscribing to collections for workspace:', workspaceId)
+    // If no cache, fetch from Firestore once
+    try {
+      set({ loading: true })
+      const q = query(
+        collection(db, 'collections'),
+        where('workspaceId', '==', workspaceId)
+      )
 
-    // Simplified query without orderBy to avoid index issues
-    const q = query(
-      collection(db, 'collections'),
-      where('workspaceId', '==', workspaceId)
-    )
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log('CollectionStore: Snapshot received, docs count:', snapshot.docs.length)
+      const snapshot = await getDocs(q)
+      console.log('🔥 Fetched collections from Firestore:', snapshot.docs.length)
+      
       const collections = snapshot.docs.map(doc => {
         const data = { id: doc.id, ...doc.data() }
         console.log('CollectionStore: Collection data:', data)
         return data
       })
-      console.log('CollectionStore: Collections updated:', collections.length, collections)
-      set({ collections })
-    }, (error) => {
-      console.error('CollectionStore: Error subscribing to collections:', error)
-      // Don't set empty array on error, keep existing data
-    })
-
-    set({ unsubscribeCollections: unsubscribe })
-    return unsubscribe
+      
+      set({ collections, lastSync: Date.now() })
+      
+      // Save to cache
+      saveToCache(workspaceId, 'collections', collections)
+      
+      return collections
+    } catch (error) {
+      console.error('CollectionStore: Error loading collections:', error)
+      return []
+    } finally {
+      set({ loading: false })
+    }
   },
 
-  // Subscribe to folders
-  subscribeToFolders: (workspaceId) => {
-    if (get().unsubscribeFolders) {
-      get().unsubscribeFolders()
+  // Load folders (cache-first, no real-time listener)
+  loadFolders: async (workspaceId) => {
+    console.log('CollectionStore: Loading folders for workspace:', workspaceId)
+
+    // Clear existing folders first
+    set({ folders: [] })
+
+    // Try to load from cache first
+    const cachedFolders = loadFromCache(workspaceId, 'folders')
+    if (cachedFolders) {
+      console.log('📦 Using cached folders:', cachedFolders.length)
+      set({ folders: cachedFolders })
+      return cachedFolders
     }
 
-    console.log('CollectionStore: Subscribing to folders for workspace:', workspaceId)
+    // If no cache, fetch from Firestore once
+    try {
+      set({ loading: true })
+      const q = query(
+        collection(db, 'folders'),
+        where('workspaceId', '==', workspaceId)
+      )
 
-    // Simplified query without orderBy to avoid index issues
-    const q = query(
-      collection(db, 'folders'),
-      where('workspaceId', '==', workspaceId)
-    )
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log('CollectionStore: Folders snapshot received, docs count:', snapshot.docs.length)
+      const snapshot = await getDocs(q)
+      console.log('🔥 Fetched folders from Firestore:', snapshot.docs.length)
+      
       const folders = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
-      console.log('CollectionStore: Folders updated:', folders.length)
-      set({ folders })
-    }, (error) => {
-      console.error('CollectionStore: Error subscribing to folders:', error)
-      // Don't set empty array on error, keep existing data
-    })
-
-    set({ unsubscribeFolders: unsubscribe })
-    return unsubscribe
+      
+      set({ folders, lastSync: Date.now() })
+      
+      // Save to cache
+      saveToCache(workspaceId, 'folders', folders)
+      
+      return folders
+    } catch (error) {
+      console.error('CollectionStore: Error loading folders:', error)
+      return []
+    } finally {
+      set({ loading: false })
+    }
   },
 
-  // Create collection
+  // Sync data from Firestore (manual refresh)
+  syncCollections: async (workspaceId) => {
+    console.log('🔄 Manually syncing collections from Firestore')
+    set({ syncing: true })
+    
+    try {
+      // Clear cache first
+      clearCache(workspaceId, 'collections')
+      clearCache(workspaceId, 'folders')
+      
+      // Fetch fresh data
+      await get().loadCollections(workspaceId)
+      await get().loadFolders(workspaceId)
+      
+      toast.success('Data synced successfully!')
+    } catch (error) {
+      console.error('Sync failed:', error)
+      toast.error('Failed to sync data')
+    } finally {
+      set({ syncing: false })
+    }
+  },
+
+  // Legacy method for backward compatibility (now uses loadCollections)
+  subscribeToCollections: (workspaceId) => {
+    console.log('⚠️ subscribeToCollections is deprecated, using loadCollections instead')
+    return get().loadCollections(workspaceId)
+  },
+
+  // Legacy method for backward compatibility (now uses loadFolders)
+  subscribeToFolders: (workspaceId) => {
+    console.log('⚠️ subscribeToFolders is deprecated, using loadFolders instead')
+    return get().loadFolders(workspaceId)
+  },
+
+  // Create collection (with local cache update)
   createCollection: async (collectionData) => {
     set({ loading: true })
     try {
@@ -110,6 +177,22 @@ export const useCollectionStore = create((set, get) => ({
         createdAt: new Date()
       })
       
+      // Update local state immediately
+      const newCollection = {
+        id: docRef.id,
+        name,
+        workspaceId,
+        description: description || '',
+        createdAt: new Date()
+      }
+      
+      const currentCollections = get().collections
+      const updatedCollections = [...currentCollections, newCollection]
+      set({ collections: updatedCollections })
+      
+      // Update cache
+      saveToCache(workspaceId, 'collections', updatedCollections)
+      
       console.log('CollectionStore: Collection created with ID:', docRef.id)
       toast.success('Collection created successfully!')
       return docRef.id
@@ -122,7 +205,7 @@ export const useCollectionStore = create((set, get) => ({
     }
   },
 
-  // Create folder
+  // Create folder (with local cache update)
   createFolder: async (name, collectionId, workspaceId) => {
     set({ loading: true })
     try {
@@ -133,6 +216,22 @@ export const useCollectionStore = create((set, get) => ({
         workspaceId,
         createdAt: new Date()
       })
+      
+      // Update local state immediately
+      const newFolder = {
+        id: docRef.id,
+        name,
+        collectionId,
+        workspaceId,
+        createdAt: new Date()
+      }
+      
+      const currentFolders = get().folders
+      const updatedFolders = [...currentFolders, newFolder]
+      set({ folders: updatedFolders })
+      
+      // Update cache
+      saveToCache(workspaceId, 'folders', updatedFolders)
       
       console.log('CollectionStore: Folder created with ID:', docRef.id)
       toast.success('Folder created successfully!')
@@ -146,7 +245,7 @@ export const useCollectionStore = create((set, get) => ({
     }
   },
 
-  // Update collection
+  // Update collection (with local cache update)
   updateCollection: async (id, updates) => {
     try {
       console.log('CollectionStore: Updating collection:', id, updates)
@@ -154,6 +253,22 @@ export const useCollectionStore = create((set, get) => ({
         ...updates,
         updatedAt: new Date()
       })
+      
+      // Update local state immediately
+      const currentCollections = get().collections
+      const updatedCollections = currentCollections.map(collection => 
+        collection.id === id 
+          ? { ...collection, ...updates, updatedAt: new Date() }
+          : collection
+      )
+      set({ collections: updatedCollections })
+      
+      // Update cache (get workspaceId from the collection)
+      const collection = currentCollections.find(c => c.id === id)
+      if (collection) {
+        saveToCache(collection.workspaceId, 'collections', updatedCollections)
+      }
+      
       toast.success('Collection updated successfully!')
     } catch (error) {
       console.error('CollectionStore: Failed to update collection:', error)
@@ -162,7 +277,7 @@ export const useCollectionStore = create((set, get) => ({
     }
   },
 
-  // Update folder
+  // Update folder (with local cache update)
   updateFolder: async (id, updates) => {
     try {
       console.log('CollectionStore: Updating folder:', id, updates)
@@ -170,6 +285,22 @@ export const useCollectionStore = create((set, get) => ({
         ...updates,
         updatedAt: new Date()
       })
+      
+      // Update local state immediately
+      const currentFolders = get().folders
+      const updatedFolders = currentFolders.map(folder => 
+        folder.id === id 
+          ? { ...folder, ...updates, updatedAt: new Date() }
+          : folder
+      )
+      set({ folders: updatedFolders })
+      
+      // Update cache (get workspaceId from the folder)
+      const folder = currentFolders.find(f => f.id === id)
+      if (folder) {
+        saveToCache(folder.workspaceId, 'folders', updatedFolders)
+      }
+      
       toast.success('Folder updated successfully!')
     } catch (error) {
       console.error('CollectionStore: Failed to update folder:', error)
@@ -178,11 +309,23 @@ export const useCollectionStore = create((set, get) => ({
     }
   },
 
-  // Delete collection
+  // Delete collection (with local cache update)
   deleteCollection: async (id) => {
     try {
       console.log('CollectionStore: Deleting collection:', id)
       await deleteDoc(doc(db, 'collections', id))
+      
+      // Update local state immediately
+      const currentCollections = get().collections
+      const collection = currentCollections.find(c => c.id === id)
+      const updatedCollections = currentCollections.filter(c => c.id !== id)
+      set({ collections: updatedCollections })
+      
+      // Update cache
+      if (collection) {
+        saveToCache(collection.workspaceId, 'collections', updatedCollections)
+      }
+      
       toast.success('Collection deleted successfully!')
     } catch (error) {
       console.error('CollectionStore: Failed to delete collection:', error)
@@ -191,11 +334,23 @@ export const useCollectionStore = create((set, get) => ({
     }
   },
 
-  // Delete folder
+  // Delete folder (with local cache update)
   deleteFolder: async (id) => {
     try {
       console.log('CollectionStore: Deleting folder:', id)
       await deleteDoc(doc(db, 'folders', id))
+      
+      // Update local state immediately
+      const currentFolders = get().folders
+      const folder = currentFolders.find(f => f.id === id)
+      const updatedFolders = currentFolders.filter(f => f.id !== id)
+      set({ folders: updatedFolders })
+      
+      // Update cache
+      if (folder) {
+        saveToCache(folder.workspaceId, 'folders', updatedFolders)
+      }
+      
       toast.success('Folder deleted successfully!')
     } catch (error) {
       console.error('CollectionStore: Failed to delete folder:', error)
@@ -221,7 +376,8 @@ export const useCollectionStore = create((set, get) => ({
       collections: [], 
       folders: [], 
       unsubscribeCollections: null, 
-      unsubscribeFolders: null 
+      unsubscribeFolders: null,
+      lastSync: null
     })
   }
 }))

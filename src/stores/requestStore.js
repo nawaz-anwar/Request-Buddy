@@ -6,6 +6,7 @@ import {
   updateDoc, 
   deleteDoc, 
   onSnapshot, 
+  getDocs,
   query, 
   where, 
   orderBy 
@@ -13,46 +14,90 @@ import {
 import { db } from '../services/firebase'
 import { v4 as uuidv4 } from 'uuid'
 import toast from 'react-hot-toast'
+import { saveToCache, loadFromCache, clearCache } from '../utils/localCache'
 
 export const useRequestStore = create((set, get) => ({
   requests: [],
   tabs: [],
   activeTabId: null,
   loading: false,
+  syncing: false,
+  lastSync: null,
   unsubscribe: null,
 
-  // Subscribe to requests
-  subscribeToRequests: (workspaceId) => {
-    if (get().unsubscribe) {
-      get().unsubscribe()
+  // Load requests (cache-first, no real-time listener)
+  loadRequests: async (workspaceId) => {
+    console.log('RequestStore: Loading requests for workspace:', workspaceId)
+
+    // Clear existing requests first
+    set({ requests: [] })
+
+    // Try to load from cache first
+    const cachedRequests = loadFromCache(workspaceId, 'requests')
+    if (cachedRequests) {
+      console.log('📦 Using cached requests:', cachedRequests.length)
+      set({ requests: cachedRequests })
+      return cachedRequests
     }
 
-    console.log('RequestStore: Subscribing to requests for workspace:', workspaceId)
+    // If no cache, fetch from Firestore once
+    try {
+      set({ loading: true })
+      const q = query(
+        collection(db, 'requests'),
+        where('workspaceId', '==', workspaceId)
+      )
 
-    // Simplified query without orderBy to avoid index issues
-    const q = query(
-      collection(db, 'requests'),
-      where('workspaceId', '==', workspaceId)
-    )
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log('RequestStore: Requests snapshot received, docs count:', snapshot.docs.length)
+      const snapshot = await getDocs(q)
+      console.log('🔥 Fetched requests from Firestore:', snapshot.docs.length)
+      
       const requests = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
-      console.log('RequestStore: Requests updated:', requests.length)
-      set({ requests })
-    }, (error) => {
-      console.error('RequestStore: Error subscribing to requests:', error)
-      // Don't set empty array on error, keep existing data
-    })
-
-    set({ unsubscribe })
-    return unsubscribe
+      
+      set({ requests, lastSync: Date.now() })
+      
+      // Save to cache
+      saveToCache(workspaceId, 'requests', requests)
+      
+      return requests
+    } catch (error) {
+      console.error('RequestStore: Error loading requests:', error)
+      return []
+    } finally {
+      set({ loading: false })
+    }
   },
 
-  // Create request
+  // Sync data from Firestore (manual refresh)
+  syncRequests: async (workspaceId) => {
+    console.log('🔄 Manually syncing requests from Firestore')
+    set({ syncing: true })
+    
+    try {
+      // Clear cache first
+      clearCache(workspaceId, 'requests')
+      
+      // Fetch fresh data
+      await get().loadRequests(workspaceId)
+      
+      toast.success('Requests synced successfully!')
+    } catch (error) {
+      console.error('Sync failed:', error)
+      toast.error('Failed to sync requests')
+    } finally {
+      set({ syncing: false })
+    }
+  },
+
+  // Legacy method for backward compatibility (now uses loadRequests)
+  subscribeToRequests: (workspaceId) => {
+    console.log('⚠️ subscribeToRequests is deprecated, using loadRequests instead')
+    return get().loadRequests(workspaceId)
+  },
+
+  // Create request (with local cache update)
   createRequest: async (requestData) => {
     set({ loading: true })
     try {
@@ -62,6 +107,21 @@ export const useRequestStore = create((set, get) => ({
         createdAt: new Date(),
         updatedAt: new Date()
       })
+      
+      // Update local state immediately
+      const newRequest = {
+        id: docRef.id,
+        ...requestData,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+      
+      const currentRequests = get().requests
+      const updatedRequests = [...currentRequests, newRequest]
+      set({ requests: updatedRequests })
+      
+      // Update cache
+      saveToCache(requestData.workspaceId, 'requests', updatedRequests)
       
       console.log('RequestStore: Request created with ID:', docRef.id)
       toast.success('Request saved successfully!')
@@ -75,13 +135,29 @@ export const useRequestStore = create((set, get) => ({
     }
   },
 
-  // Update request
+  // Update request (with local cache update)
   updateRequest: async (id, updates) => {
     try {
       await updateDoc(doc(db, 'requests', id), {
         ...updates,
         updatedAt: new Date()
       })
+      
+      // Update local state immediately
+      const currentRequests = get().requests
+      const updatedRequests = currentRequests.map(request => 
+        request.id === id 
+          ? { ...request, ...updates, updatedAt: new Date() }
+          : request
+      )
+      set({ requests: updatedRequests })
+      
+      // Update cache (get workspaceId from the request)
+      const request = currentRequests.find(r => r.id === id)
+      if (request) {
+        saveToCache(request.workspaceId, 'requests', updatedRequests)
+      }
+      
       toast.success('Request updated successfully!')
     } catch (error) {
       toast.error('Failed to update request')
@@ -106,12 +182,19 @@ export const useRequestStore = create((set, get) => ({
       await updateDoc(doc(db, 'requests', requestId), updates)
       
       // Update local state immediately for better UX
-      const requests = get().requests.map(request => 
+      const currentRequests = get().requests
+      const updatedRequests = currentRequests.map(request => 
         request.id === requestId 
           ? { ...request, ...updates }
           : request
       )
-      set({ requests })
+      set({ requests: updatedRequests })
+      
+      // Update cache
+      const request = currentRequests.find(r => r.id === requestId)
+      if (request) {
+        saveToCache(request.workspaceId, 'requests', updatedRequests)
+      }
       
       console.log('Request moved successfully:', requestId, 'to collection:', newCollectionId, 'folder:', newFolderId)
     } catch (error) {
@@ -134,13 +217,20 @@ export const useRequestStore = create((set, get) => ({
       await Promise.all(updatePromises)
       
       // Update local state
-      const requests = get().requests.map(request => {
+      const currentRequests = get().requests
+      const updatedRequests = currentRequests.map(request => {
         const newIndex = requestIds.indexOf(request.id)
         return newIndex !== -1 
           ? { ...request, order: newIndex, updatedAt: new Date() }
           : request
       })
-      set({ requests })
+      set({ requests: updatedRequests })
+      
+      // Update cache (get workspaceId from first request)
+      const firstRequest = currentRequests.find(r => requestIds.includes(r.id))
+      if (firstRequest) {
+        saveToCache(firstRequest.workspaceId, 'requests', updatedRequests)
+      }
       
       console.log('Requests reordered successfully in', containerType, containerId)
     } catch (error) {
@@ -149,10 +239,21 @@ export const useRequestStore = create((set, get) => ({
     }
   },
 
-  // Delete request
+  // Delete request (with local cache update)
   deleteRequest: async (id) => {
     try {
       await deleteDoc(doc(db, 'requests', id))
+      
+      // Update local state immediately
+      const currentRequests = get().requests
+      const request = currentRequests.find(r => r.id === id)
+      const updatedRequests = currentRequests.filter(r => r.id !== id)
+      set({ requests: updatedRequests })
+      
+      // Update cache
+      if (request) {
+        saveToCache(request.workspaceId, 'requests', updatedRequests)
+      }
       
       // Remove from tabs if open
       const tabs = get().tabs.filter(tab => tab.id !== id)
@@ -213,7 +314,7 @@ export const useRequestStore = create((set, get) => ({
     set({ tabs, activeTabId })
   },
 
-  // Update tab
+  // Update tab (LOCAL ONLY - no auto-save)
   updateTab: (tabId, updates) => {
     const tabs = get().tabs.map(tab => {
       if (tab.id === tabId) {
@@ -238,6 +339,9 @@ export const useRequestStore = create((set, get) => ({
       return tab
     })
     set({ tabs })
+    
+    // NO AUTO-SAVE - changes are only local until explicit save
+    console.log('💾 Tab updated locally (no auto-save)')
   },
 
   // Set active tab
@@ -253,6 +357,11 @@ export const useRequestStore = create((set, get) => ({
 
   // Get requests for collection
   getRequestsForCollection: (collectionId) => {
+    return get().requests.filter(request => request.collectionId === collectionId)
+  },
+
+  // Get all requests for collection (including those in folders)
+  getAllRequestsForCollection: (collectionId) => {
     return get().requests.filter(request => request.collectionId === collectionId)
   },
 
@@ -286,7 +395,7 @@ export const useRequestStore = create((set, get) => ({
     return newTab
   },
 
-  // Save tab to Firestore
+  // Save tab to Firestore (EXPLICIT SAVE ONLY)
   saveTab: async (tabId) => {
     const tab = get().tabs.find(t => t.id === tabId)
     if (!tab) return
@@ -314,6 +423,19 @@ export const useRequestStore = create((set, get) => ({
           ...requestData,
           updatedAt: new Date()
         })
+        
+        // Update local requests array
+        const currentRequests = get().requests
+        const updatedRequests = currentRequests.map(request => 
+          request.id === tab.id 
+            ? { ...request, ...requestData, updatedAt: new Date() }
+            : request
+        )
+        set({ requests: updatedRequests })
+        
+        // Update cache
+        saveToCache(tab.workspaceId, 'requests', updatedRequests)
+        
         toast.success('Request updated successfully!')
       } else {
         // Create new request
@@ -323,6 +445,21 @@ export const useRequestStore = create((set, get) => ({
           updatedAt: new Date()
         })
         savedId = docRef.id
+        
+        // Add to local requests array
+        const newRequest = {
+          id: savedId,
+          ...requestData,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+        const currentRequests = get().requests
+        const updatedRequests = [...currentRequests, newRequest]
+        set({ requests: updatedRequests })
+        
+        // Update cache
+        saveToCache(tab.workspaceId, 'requests', updatedRequests)
+        
         toast.success('Request saved successfully!')
       }
 
@@ -388,7 +525,8 @@ export const useRequestStore = create((set, get) => ({
       requests: [], 
       tabs: [], 
       activeTabId: null, 
-      unsubscribe: null 
+      unsubscribe: null,
+      lastSync: null
     })
   }
 }))

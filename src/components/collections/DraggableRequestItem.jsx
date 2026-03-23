@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { FileText, GripVertical, MoreHorizontal, Edit2, Trash2 } from 'lucide-react'
+import { FileText, GripVertical, MoreHorizontal, Edit2, Trash2, Download } from 'lucide-react'
 
 export default function DraggableRequestItem({ 
   request, 
@@ -142,6 +142,13 @@ export default function DraggableRequestItem({
             >
               <Edit2 className="h-3 w-3" />
               <span>Rename</span>
+            </button>
+            <button
+              onClick={() => handleMenuItemClick('export')}
+              className="w-full px-3 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center space-x-2"
+            >
+              <Download className="h-3 w-3" />
+              <span>Export Request</span>
             </button>
             <button
               onClick={() => handleMenuItemClick('delete')}

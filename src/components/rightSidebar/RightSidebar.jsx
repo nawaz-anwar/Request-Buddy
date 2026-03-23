@@ -47,11 +47,6 @@ export default function RightSidebar({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onToggle])
 
-  // Save sidebar state to localStorage
-  useEffect(() => {
-    localStorage.setItem('requestBuddy_rightSidebarOpen', isOpen.toString())
-  }, [isOpen])
-
   // Save active tab to localStorage
   useEffect(() => {
     localStorage.setItem('requestBuddy_rightSidebarTab', activeTab)

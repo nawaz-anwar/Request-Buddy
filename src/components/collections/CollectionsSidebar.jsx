@@ -40,7 +40,7 @@ import DeleteCollectionModal from './DeleteCollectionModal'
 import DeleteRequestModal from '../request/DeleteRequestModal'
 import DroppableCollection from './DroppableCollection'
 import DraggableRequestItem from './DraggableRequestItem'
-import { exportPostmanCollection, downloadJsonFile } from '../../utils/postmanImportExport'
+import { exportPostmanCollection, downloadJsonFile, exportSingleRequest } from '../../utils/postmanImportExport'
 
 export default function CollectionsSidebar({ onRequestSelect }) {
   const { user } = useAuthStore()
@@ -54,15 +54,15 @@ export default function CollectionsSidebar({ onRequestSelect }) {
     updateFolder,
     deleteCollection,
     deleteFolder,
-    subscribeToCollections,
-    subscribeToFolders
+    loadCollections,
+    loadFolders
   } = useCollectionStore()
   const { 
     requests, 
     createRequest,
     updateRequest,
     deleteRequest,
-    subscribeToRequests,
+    loadRequests,
     moveRequest,
     reorderRequests
   } = useRequestStore()
@@ -96,15 +96,15 @@ export default function CollectionsSidebar({ onRequestSelect }) {
   const canWrite = hasPermission(currentWorkspace?.id, user?.uid, 'write')
   const canRead = hasPermission(currentWorkspace?.id, user?.uid, 'read')
 
-  // Subscribe to collections, folders, and requests when workspace changes
+  // Load collections, folders, and requests when workspace changes
   useEffect(() => {
     if (currentWorkspace?.id) {
-      console.log('CollectionsSidebar: Subscribing to data for workspace:', currentWorkspace.id)
-      subscribeToCollections(currentWorkspace.id)
-      subscribeToFolders(currentWorkspace.id)
-      subscribeToRequests(currentWorkspace.id)
+      console.log('CollectionsSidebar: Loading data for workspace:', currentWorkspace.id)
+      loadCollections(currentWorkspace.id)
+      loadFolders(currentWorkspace.id)
+      loadRequests(currentWorkspace.id)
     }
-  }, [currentWorkspace?.id, subscribeToCollections, subscribeToFolders, subscribeToRequests])
+  }, [currentWorkspace?.id, loadCollections, loadFolders, loadRequests])
 
   // Close context menu on click outside
   useEffect(() => {
@@ -270,6 +270,17 @@ export default function CollectionsSidebar({ onRequestSelect }) {
     setContextMenu(null)
   }
 
+  const handleExportRequest = async (request) => {
+    try {
+      const result = exportSingleRequest(request)
+      downloadJsonFile(result.collection, result.filename)
+      toast.success(`Request exported: ${result.filename}`)
+    } catch (error) {
+      console.error('Failed to export request:', error)
+      toast.error('Failed to export request')
+    }
+  }
+
   const handleSaveEdit = async () => {
     if (!editingItem || !editingName.trim()) return
 
@@ -311,6 +322,10 @@ export default function CollectionsSidebar({ onRequestSelect }) {
 
   const getRequestsForCollection = (collectionId) => {
     return requests.filter(request => request.collectionId === collectionId && !request.folderId)
+  }
+
+  const getAllRequestsForCollection = (collectionId) => {
+    return requests.filter(request => request.collectionId === collectionId)
   }
 
   const getRequestsForFolder = (folderId) => {
@@ -392,6 +407,11 @@ export default function CollectionsSidebar({ onRequestSelect }) {
         break
       case 'rename':
         handleRename(item, type)
+        break
+      case 'export':
+        if (type === 'request') {
+          handleExportRequest(item)
+        }
         break
       case 'delete':
         handleDelete(item, type)
@@ -485,7 +505,7 @@ export default function CollectionsSidebar({ onRequestSelect }) {
           ) : (
             filteredCollections.map(collection => {
               const collectionFolders = getFoldersForCollection(collection.id)
-              const collectionRequests = getRequestsForCollection(collection.id)
+              const collectionRequests = getAllRequestsForCollection(collection.id)
               const isExpanded = expandedCollections.has(collection.id)
 
               return (
@@ -601,7 +621,7 @@ export default function CollectionsSidebar({ onRequestSelect }) {
       <ImportCollectionModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
-        workspaceId={user?.uid}
+        workspaceId={currentWorkspace?.id}
         onSuccess={handleImportSuccess}
       />
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Send, Save } from 'lucide-react'
 import { useRequestStore } from '../../stores/requestStore'
 import ParamsTab from './ParamsTab'
@@ -6,7 +6,7 @@ import HeadersTab from './HeadersTab'
 import BodyTab from './BodyTab'
 import AuthTab from './AuthTab'
 import CookiesTab from './CookiesTab'
-import VariableHint from '../environments/VariableHint'
+import VariableHighlightInput from '../environments/VariableHighlightInput'
 import AIButton from '../ai/AIButton'
 import AIResultPanel from '../ai/AIResultPanel'
 import DebugAIModal from '../ai/DebugAIModal'
@@ -21,7 +21,6 @@ export default function RequestEditor({
   showRightSidebar, 
   onToggleRightSidebar 
 }) {
-  const { updateRequest } = useRequestStore()
   const [activeTab, setActiveTab] = useState('params')
   const [loading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -29,35 +28,12 @@ export default function RequestEditor({
   const [aiAction, setAIAction] = useState(null)
   const [showDebugAI, setShowDebugAI] = useState(false)
 
-  // Auto-save to Firestore on changes
-  const autoSave = useCallback(async (updates) => {
-    if (request?.id) {
-      try {
-        await updateRequest(request.id, updates)
-      } catch (error) {
-        console.error('Auto-save failed:', error)
-      }
-    }
-  }, [request?.id, updateRequest])
-
-  // Debounced auto-save
-  const [saveTimeout, setSaveTimeout] = useState(null)
-  const debouncedAutoSave = useCallback((updates) => {
-    if (saveTimeout) {
-      clearTimeout(saveTimeout)
-    }
-    const timeout = setTimeout(() => {
-      autoSave(updates)
-    }, 1000) // Save after 1 second of inactivity
-    setSaveTimeout(timeout)
-  }, [autoSave, saveTimeout])
-
-  // Handle field changes
+  // Handle field changes (LOCAL ONLY - no auto-save)
   const handleFieldChange = (field, value) => {
     if (request?.onChange) {
       request.onChange({ [field]: value })
     }
-    debouncedAutoSave({ [field]: value })
+    // NO AUTO-SAVE - changes remain local until explicit Save
   }
 
   // Handle save functionality
@@ -103,15 +79,6 @@ export default function RequestEditor({
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [request?.url, onSendRequest, onSave])
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeout) {
-        clearTimeout(saveTimeout)
-      }
-    }
-  }, [saveTimeout])
 
   if (!request) {
     console.log('RequestEditor: No request object provided')
@@ -198,11 +165,10 @@ export default function RequestEditor({
             ))}
           </select>
           
-          <input
-            type="text"
-            placeholder="Enter request URL (e.g., https://api.example.com/users)"
+          <VariableHighlightInput
             value={request.url || ''}
-            onChange={(e) => handleFieldChange('url', e.target.value)}
+            onChange={(value) => handleFieldChange('url', value)}
+            placeholder="Enter request URL (e.g., https://api.example.com/users)"
             className="flex-1 px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
           />
           
@@ -257,9 +223,6 @@ export default function RequestEditor({
             </button>
           </div>
         </div>
-        
-        {/* Variable hint for URL */}
-        <VariableHint text={request.url} />
       </div>
 
       {/* Tabs */}
