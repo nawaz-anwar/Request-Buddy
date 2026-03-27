@@ -89,6 +89,49 @@ export const useRequestStore = create((set, get) => ({
     }
   },
 
+  // Move/reorder request (for drag and drop)
+  moveRequest: async (requestId, newCollectionId, newFolderId = null, newOrder = null) => {
+    try {
+      const updates = {
+        collectionId: newCollectionId,
+        folderId: newFolderId,
+        updatedAt: new Date()
+      }
+      
+      // Add order if provided
+      if (newOrder !== null) {
+        updates.order = newOrder
+      }
+      
+      await updateDoc(doc(db, 'requests', requestId), updates)
+      
+      console.log('Request moved successfully:', requestId, 'to collection:', newCollectionId, 'folder:', newFolderId)
+    } catch (error) {
+      console.error('Failed to move request:', error)
+      toast.error('Failed to move request')
+    }
+  },
+
+  // Reorder requests within the same container
+  reorderRequests: async (requestIds, containerId, containerType) => {
+    try {
+      // Update order for each request
+      const updatePromises = requestIds.map((requestId, index) => 
+        updateDoc(doc(db, 'requests', requestId), {
+          order: index,
+          updatedAt: new Date()
+        })
+      )
+      
+      await Promise.all(updatePromises)
+      
+      console.log('Requests reordered successfully in', containerType, containerId)
+    } catch (error) {
+      console.error('Failed to reorder requests:', error)
+      toast.error('Failed to reorder requests')
+    }
+  },
+
   // Delete request
   deleteRequest: async (id) => {
     try {
@@ -153,7 +196,7 @@ export const useRequestStore = create((set, get) => ({
     set({ tabs, activeTabId })
   },
 
-  // Update tab
+  // Update tab (LOCAL ONLY - no auto-save)
   updateTab: (tabId, updates) => {
     const tabs = get().tabs.map(tab => {
       if (tab.id === tabId) {
@@ -178,6 +221,9 @@ export const useRequestStore = create((set, get) => ({
       return tab
     })
     set({ tabs })
+    
+    // NO AUTO-SAVE - changes are only local until explicit save
+    console.log('💾 Tab updated locally (no auto-save)')
   },
 
   // Set active tab
@@ -193,6 +239,11 @@ export const useRequestStore = create((set, get) => ({
 
   // Get requests for collection
   getRequestsForCollection: (collectionId) => {
+    return get().requests.filter(request => request.collectionId === collectionId)
+  },
+
+  // Get all requests for collection (including those in folders)
+  getAllRequestsForCollection: (collectionId) => {
     return get().requests.filter(request => request.collectionId === collectionId)
   },
 

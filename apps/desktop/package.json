@@ -5,10 +5,10 @@
   "main": "electron/main.js",
   "private": true,
   "scripts": {
-    "electron:dev": "concurrently \"npm run dev --workspace=apps/web\" \"wait-on http://localhost:5173 && electron .\"",
-    "build": "npm run build --workspace=apps/web && electron-builder",
-    "preview": "npm run build --workspace=apps/web && electron .",
-    "release": "npm run build --workspace=apps/web && electron-builder --publish=never"
+    "electron:dev": "concurrently \"cd ../web && npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "cd ../web && npm run build && cd ../desktop && electron-builder",
+    "preview": "cd ../web && npm run build && cd ../desktop && electron .",
+    "release": "cd ../web && npm run build && cd ../desktop && electron-builder --publish=never"
   },
   "build": {
     "appId": "com.requestbuddy.app",

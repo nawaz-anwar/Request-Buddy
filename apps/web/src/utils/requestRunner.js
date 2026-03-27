@@ -2,6 +2,9 @@
 // Request Runner (Electron/Renderer compatible)
 // -----------------------------
 
+import { useCookieStore } from '../stores/cookieStore'
+import { parseSetCookieHeaders, formatCookieHeader, extractDomain } from './cookieUtils'
+
 /**
  * Run an HTTP request with proper error handling and response formatting
  * @param {Object} req - Request object with method, url, headers, params, body, auth
@@ -76,6 +79,24 @@ export async function runRequest(req) {
       }
     }
 
+    // STEP 3: ATTACH COOKIES TO REQUESTS
+    // Get cookies for this URL and add them to headers
+    try {
+      const cookieStore = useCookieStore.getState()
+      const cookies = cookieStore.getCookiesForUrl(finalUrl.toString())
+      
+      if (cookies.length > 0) {
+        const cookieHeader = formatCookieHeader(cookies)
+        if (cookieHeader) {
+          headers['Cookie'] = cookieHeader
+          console.log('🍪 Attached cookies to request:', cookieHeader)
+        }
+      }
+    } catch (cookieError) {
+      console.warn('Failed to attach cookies:', cookieError)
+      // Don't fail the request if cookie handling fails
+    }
+
     // Handle Authentication
     if (req.auth?.type === "bearer" && req.auth.bearerToken) {
       headers["Authorization"] = `Bearer ${req.auth.bearerToken}`
@@ -114,10 +135,13 @@ export async function runRequest(req) {
       }
     }
 
+    let response
+    let responseHeaders = {}
+
     // Try Electron API first, then fallback to fetch
     if (window.electronAPI && window.electronAPI.httpRequest) {
       console.log('Using Electron API for request')
-      const response = await window.electronAPI.httpRequest({
+      response = await window.electronAPI.httpRequest({
         method: req.method,
         url: finalUrl.toString(),
         headers,
@@ -125,15 +149,7 @@ export async function runRequest(req) {
         body: req.body
       })
       
-      const time = Math.round(performance.now() - start)
-      return {
-        status: response.status,
-        statusText: response.statusText,
-        data: response.data,
-        headers: response.headers || {},
-        time,
-        size: JSON.stringify(response.data)?.length || 0
-      }
+      responseHeaders = response.headers || {}
     } else {
       // Fallback to fetch API
       console.log('Using fetch API for request')
@@ -146,30 +162,54 @@ export async function runRequest(req) {
         fetchOptions.body = data
       }
 
-      const response = await fetch(finalUrl.toString(), fetchOptions)
-      const time = Math.round(performance.now() - start)
+      const fetchResponse = await fetch(finalUrl.toString(), fetchOptions)
+      responseHeaders = Object.fromEntries(fetchResponse.headers.entries())
       
       let responseData
-      const contentType = response.headers.get('content-type')
+      const contentType = fetchResponse.headers.get('content-type')
       
       if (contentType && contentType.includes('application/json')) {
         try {
-          responseData = await response.json()
+          responseData = await fetchResponse.json()
         } catch {
-          responseData = await response.text()
+          responseData = await fetchResponse.text()
         }
       } else {
-        responseData = await response.text()
+        responseData = await fetchResponse.text()
       }
 
-      return {
-        status: response.status,
-        statusText: response.statusText,
+      response = {
+        status: fetchResponse.status,
+        statusText: fetchResponse.statusText,
         data: responseData,
-        headers: Object.fromEntries(response.headers.entries()),
-        time,
-        size: JSON.stringify(responseData)?.length || responseData?.length || 0
+        headers: responseHeaders
       }
+    }
+
+    // STEP 2: CAPTURE COOKIES FROM RESPONSE
+    // Parse Set-Cookie headers and store them
+    try {
+      const domain = extractDomain(finalUrl.toString())
+      const newCookies = parseSetCookieHeaders(responseHeaders, domain)
+      
+      if (newCookies.length > 0) {
+        const cookieStore = useCookieStore.getState()
+        cookieStore.setCookies(newCookies)
+        console.log('🍪 Captured cookies from response:', newCookies.length, 'cookies')
+      }
+    } catch (cookieError) {
+      console.warn('Failed to capture cookies:', cookieError)
+      // Don't fail the request if cookie handling fails
+    }
+
+    const time = Math.round(performance.now() - start)
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      data: response.data,
+      headers: responseHeaders,
+      time,
+      size: JSON.stringify(response.data)?.length || 0
     }
   } catch (err) {
     const time = Math.round(performance.now() - start)

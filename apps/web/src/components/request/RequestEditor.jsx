@@ -5,7 +5,9 @@ import ParamsTab from './ParamsTab'
 import HeadersTab from './HeadersTab'
 import BodyTab from './BodyTab'
 import AuthTab from './AuthTab'
+import CookiesTab from './CookiesTab'
 import VariableHint from '../environments/VariableHint'
+import VariableHighlightInput from '../environments/VariableHighlightInput'
 import AIButton from '../ai/AIButton'
 import AIResultPanel from '../ai/AIResultPanel'
 import DebugAIModal from '../ai/DebugAIModal'
@@ -197,11 +199,10 @@ export default function RequestEditor({
             ))}
           </select>
           
-          <input
-            type="text"
-            placeholder="Enter request URL (e.g., https://api.example.com/users)"
+          <VariableHighlightInput
             value={request.url || ''}
-            onChange={(e) => handleFieldChange('url', e.target.value)}
+            onChange={(value) => handleFieldChange('url', value)}
+            placeholder="Enter request URL (e.g., https://api.example.com/users)"
             className="flex-1 px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
           />
           
@@ -279,7 +280,7 @@ export default function RequestEditor({
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
-        {['params', 'headers', 'body', 'auth'].map(tab => (
+        {['params', 'headers', 'body', 'auth', 'cookies'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -338,6 +339,16 @@ export default function RequestEditor({
           <AuthTab
             auth={request.auth || { type: 'none', bearerToken: '', basic: { username: '', password: '' } }}
             onChange={(auth) => handleFieldChange('auth', auth)}
+          />
+        )}
+        
+        {activeTab === 'cookies' && (
+          <CookiesTab
+            url={request.url}
+            onChange={(cookieData) => {
+              // Cookies are managed by cookieStore, no need to save to request
+              console.log('Cookies updated:', cookieData)
+            }}
           />
         )}
       </div>

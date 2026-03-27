@@ -2,69 +2,30 @@
   "name": "request-buddy",
   "version": "1.0.0",
   "description": "Modern API Development & Testing Desktop App",
-  "main": "electron/main.js",
-  "homepage": "./",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "backend/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron:preview": "npm run build && electron .",
-    "release": "npm run build && electron-builder --publish=never",
+    "dev": "npm run dev --workspace=apps/web",
+    "build": "npm run build --workspace=apps/web",
+    "preview": "npm run preview --workspace=apps/web",
+    "electron:dev": "npm run electron:dev --workspace=apps/desktop",
+    "electron:build": "npm run build --workspace=apps/web && npm run build --workspace=apps/desktop",
+    "electron:preview": "npm run preview --workspace=apps/desktop",
+    "release": "npm run build --workspace=apps/web && npm run release --workspace=apps/desktop",
     "release:mac": "./scripts/build-mac-release.sh",
-    "postbuild:mac": "npm run sign-mac",
-    "sign-mac": "node scripts/sign-mac.js"
+    "backend:dev": "npm run start:dev --workspace=backend/api",
+    "backend:build": "npm run build --workspace=backend/api",
+    "backend:start": "npm run start:prod --workspace=backend/api",
+    "dev:legacy": "vite",
+    "build:legacy": "vite build",
+    "electron:dev:legacy": "concurrently \"npm run dev:legacy\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build:legacy": "npm run build:legacy && electron-builder"
   },
-  "build": {
-    "appId": "com.requestbuddy.app",
-    "productName": "Request Buddy",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "afterPack": "scripts/after-pack.js",
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": ["x64", "arm64"]
-        }
-      ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
-      "identity": null,
-      "gatekeeperAssess": false,
-      "hardenedRuntime": false,
-      "entitlements": null,
-      "entitlementsInherit": null
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    }
-  },
+  "homepage": "./",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

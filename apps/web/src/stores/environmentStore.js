@@ -114,16 +114,48 @@ export const useEnvironmentStore = create((set, get) => ({
 
   // Replace variables in text
   replaceVariables: (text) => {
-    const { currentEnvironment } = get()
-    if (!currentEnvironment || !text) return text
+    try {
+      const { currentEnvironment } = get()
 
-    let result = text
-    Object.entries(currentEnvironment.variables || {}).forEach(([key, value]) => {
-      const regex = new RegExp(`{{${key}}}`, 'g')
-      result = result.replace(regex, value)
-    })
-    
-    return result
+      if (!text || typeof text !== 'string') {
+        return text || ''
+      }
+
+      if (!currentEnvironment || !currentEnvironment.variables) {
+        console.warn('⚠️ No environment or variables available')
+        return text
+      }
+
+      console.log('🔄 Replacing variables in:', text)
+      console.log('🌍 Environment:', currentEnvironment.name)
+      console.log('🔑 Variables:', currentEnvironment.variables)
+
+      let result = text
+
+      // Replace each variable
+      Object.entries(currentEnvironment.variables).forEach(([key, value]) => {
+        if (!key || !value) return
+
+        // Escape special regex characters in the key
+        const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+        // Create regex to match {{key}} with optional spaces
+        const regex = new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'g')
+
+        const beforeReplace = result
+        result = result.replace(regex, value)
+
+        if (beforeReplace !== result) {
+          console.log(`✅ Replaced {{${key}}} with: ${value}`)
+        }
+      })
+
+      console.log('✨ Result:', result)
+      return result
+    } catch (error) {
+      console.error('❌ Error in replaceVariables:', error)
+      return text || ''
+    }
   },
 
   // Get variable value

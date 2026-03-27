@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import toast from 'react-hot-toast'
+import { saveToCache, loadFromCache, clearWorkspaceCache } from '../utils/localCache'
 
 export const useCollectionStore = create((set, get) => ({
   collections: [],
@@ -28,6 +29,12 @@ export const useCollectionStore = create((set, get) => ({
 
     console.log('CollectionStore: Subscribing to collections for workspace:', workspaceId)
 
+    // Try to load from cache first
+    const cachedCollections = loadFromCache(workspaceId, 'collections')
+    if (cachedCollections) {
+      set({ collections: cachedCollections })
+    }
+
     // Simplified query without orderBy to avoid index issues
     const q = query(
       collection(db, 'collections'),
@@ -43,6 +50,9 @@ export const useCollectionStore = create((set, get) => ({
       })
       console.log('CollectionStore: Collections updated:', collections.length, collections)
       set({ collections })
+      
+      // Save to cache
+      saveToCache(workspaceId, 'collections', collections)
     }, (error) => {
       console.error('CollectionStore: Error subscribing to collections:', error)
       // Don't set empty array on error, keep existing data
@@ -60,6 +70,12 @@ export const useCollectionStore = create((set, get) => ({
 
     console.log('CollectionStore: Subscribing to folders for workspace:', workspaceId)
 
+    // Try to load from cache first
+    const cachedFolders = loadFromCache(workspaceId, 'folders')
+    if (cachedFolders) {
+      set({ folders: cachedFolders })
+    }
+
     // Simplified query without orderBy to avoid index issues
     const q = query(
       collection(db, 'folders'),
@@ -74,6 +90,9 @@ export const useCollectionStore = create((set, get) => ({
       }))
       console.log('CollectionStore: Folders updated:', folders.length)
       set({ folders })
+      
+      // Save to cache
+      saveToCache(workspaceId, 'folders', folders)
     }, (error) => {
       console.error('CollectionStore: Error subscribing to folders:', error)
       // Don't set empty array on error, keep existing data

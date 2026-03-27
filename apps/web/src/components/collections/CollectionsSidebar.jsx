@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { 
   Plus, 
   Search, 
@@ -24,6 +25,7 @@ import ImportCollectionModal from './ImportCollectionModal'
 import CreateCollectionModal from './CreateCollectionModal'
 import DeleteCollectionModal from './DeleteCollectionModal'
 import DeleteRequestModal from '../request/DeleteRequestModal'
+import DroppableCollection from './DroppableCollection'
 import { exportPostmanCollection, downloadJsonFile } from '../../utils/postmanImportExport'
 
 export default function CollectionsSidebar({ onRequestSelect }) {
@@ -60,6 +62,16 @@ export default function CollectionsSidebar({ onRequestSelect }) {
   const [showDeleteCollectionModal, setShowDeleteCollectionModal] = useState(false)
   const [showDeleteRequestModal, setShowDeleteRequestModal] = useState(false)
   const [exporting, setExporting] = useState(null)
+  const [activeId, setActiveId] = useState(null)
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px movement required to start drag
+      },
+    })
+  )
 
   // Permission helpers
   const canWrite = hasPermission(currentWorkspace?.id, user?.uid, 'write')
@@ -250,6 +262,53 @@ export default function CollectionsSidebar({ onRequestSelect }) {
     setContextMenu(null)
   }
 
+  // Drag and drop handlers
+  const handleDragStart = (event) => {
+    setActiveId(event.active.id)
+  }
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event
+    setActiveId(null)
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    console.log('Drag ended:', { active: active.id, over: over.id })
+    
+    // Handle request being dropped
+    if (active.data.current?.type === 'request') {
+      const request = active.data.current.request
+      
+      // Dropped on collection
+      if (over.data.current?.type === 'collection') {
+        const targetCollection = over.data.current.collection
+        console.log('Moving request to collection:', targetCollection.name)
+        updateRequest(request.id, {
+          collectionId: targetCollection.id,
+          folderId: null // Remove from folder
+        })
+        toast.success(`Moved "${request.name}" to "${targetCollection.name}"`)
+      }
+      
+      // Dropped on folder
+      if (over.data.current?.type === 'folder') {
+        const targetFolder = over.data.current.folder
+        console.log('Moving request to folder:', targetFolder.name)
+        updateRequest(request.id, {
+          collectionId: targetFolder.collectionId,
+          folderId: targetFolder.id
+        })
+        toast.success(`Moved "${request.name}" to "${targetFolder.name}"`)
+      }
+    }
+  }
+
+  const handleDragCancel = () => {
+    setActiveId(null)
+  }
+
   const handleSaveEdit = async () => {
     if (!editingItem || !editingName.trim()) return
 
@@ -355,239 +414,75 @@ export default function CollectionsSidebar({ onRequestSelect }) {
       </div>
 
       {/* Collections Tree */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {filteredCollections.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="mx-auto h-16 w-16 bg-gray-100 dark:bg-gray-700 rounded-2xl flex items-center justify-center mb-4">
-              <Layers className="h-8 w-8 text-gray-400 dark:text-gray-500" />
-            </div>
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-300 mb-1">No collections yet</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">User: {user?.email}</p>
-            <button
-              onClick={handleCreateCollection}
-              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Create your first collection</span>
-            </button>
-          </div>
-        ) : (
-          filteredCollections.map(collection => {
-            const collectionFolders = getFoldersForCollection(collection.id)
-            const collectionRequests = getRequestsForCollection(collection.id)
-            const isExpanded = expandedCollections.has(collection.id)
-
-            return (
-              <div key={collection.id} className="mb-1">
-                <div
-                  className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group transition-all duration-200"
-                  onClick={() => toggleCollection(collection.id)}
-                  onContextMenu={(e) => handleRightClick(e, collection, 'collection')}
-                >
-                  <div className="flex items-center space-x-2 flex-1 min-w-0">
-                    {isExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0 transition-transform duration-200" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-gray-400 dark:text-gray-500 flex-shrink-0 transition-transform duration-200" />
-                    )}
-                    {isExpanded ? (
-                      <FolderOpen className="h-5 w-5 text-blue-500 dark:text-blue-400 flex-shrink-0" />
-                    ) : (
-                      <Folder className="h-5 w-5 text-blue-500 dark:text-blue-400 flex-shrink-0" />
-                    )}
-                    
-                    {editingItem?.id === collection.id && editingItem?.type === 'collection' ? (
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onBlur={handleSaveEdit}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSaveEdit()
-                          if (e.key === 'Escape') handleCancelEdit()
-                        }}
-                        className="flex-1 px-2 py-1 text-sm bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        autoFocus
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                        {collection.name}
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {canWrite && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleCreateRequest(collection.id)
-                        }}
-                        className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-blue-600 dark:hover:text-blue-400 transition-all duration-200"
-                        title="New Request"
-                      >
-                        <Zap className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                    {canWrite && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleCreateFolder(collection.id)
-                        }}
-                        className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-blue-600 dark:hover:text-blue-400 transition-all duration-200"
-                        title="New Folder"
-                      >
-                        <Folder className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {isExpanded && (
-                  <div className="ml-6 space-y-1">
-                    {/* Folders */}
-                    {collectionFolders.map(folder => {
-                      const folderRequests = getRequestsForFolder(folder.id)
-                      const isFolderExpanded = expandedFolders.has(folder.id)
-
-                      return (
-                        <div key={folder.id}>
-                          <div
-                            className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700 cursor-pointer group"
-                            onClick={() => toggleFolder(folder.id)}
-                            onContextMenu={(e) => handleRightClick(e, folder, 'folder')}
-                          >
-                            <div className="flex items-center space-x-2 flex-1 min-w-0">
-                              {isFolderExpanded ? (
-                                <ChevronDown className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                              ) : (
-                                <ChevronRight className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                              )}
-                              <Folder className="h-3 w-3 text-yellow-400 flex-shrink-0" />
-                              
-                              {editingItem?.id === folder.id && editingItem?.type === 'folder' ? (
-                                <input
-                                  type="text"
-                                  value={editingName}
-                                  onChange={(e) => setEditingName(e.target.value)}
-                                  onBlur={handleSaveEdit}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleSaveEdit()
-                                    if (e.key === 'Escape') handleCancelEdit()
-                                  }}
-                                  className="flex-1 px-2 py-1 text-sm bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  autoFocus
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              ) : (
-                                <span className="text-sm text-gray-300 truncate">
-                                  {folder.name}
-                                </span>
-                              )}
-                            </div>
-                            
-                            {canWrite && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleCreateRequest(collection.id, folder.id)
-                                }}
-                                className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-blue-400 transition-all"
-                                title="New Request"
-                              >
-                                <Plus className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
-
-                          {isFolderExpanded && (
-                            <div className="ml-6 space-y-1">
-                              {folderRequests.map(request => (
-                                <div
-                                  key={request.id}
-                                  className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700 cursor-pointer group"
-                                  onClick={() => onRequestSelect(request)}
-                                  onContextMenu={(e) => handleRightClick(e, request, 'request')}
-                                >
-                                  <div className="flex items-center space-x-2 min-w-0 flex-1">
-                                    <FileText className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                                    <span className={`text-xs font-mono ${getMethodColor(request.method)} flex-shrink-0`}>
-                                      {request.method}
-                                    </span>
-                                    
-                                    {editingItem?.id === request.id && editingItem?.type === 'request' ? (
-                                      <input
-                                        type="text"
-                                        value={editingName}
-                                        onChange={(e) => setEditingName(e.target.value)}
-                                        onBlur={handleSaveEdit}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') handleSaveEdit()
-                                          if (e.key === 'Escape') handleCancelEdit()
-                                        }}
-                                        className="flex-1 px-2 py-1 text-sm bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        autoFocus
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                    ) : (
-                                      <span className="text-sm text-gray-300 truncate">
-                                        {request.name}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-
-                    {/* Direct collection requests (no folder) */}
-                    {collectionRequests.map(request => (
-                      <div
-                        key={request.id}
-                        className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700 cursor-pointer group"
-                        onClick={() => onRequestSelect(request)}
-                        onContextMenu={(e) => handleRightClick(e, request, 'request')}
-                      >
-                        <div className="flex items-center space-x-2 min-w-0 flex-1">
-                          <FileText className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                          <span className={`text-xs font-mono ${getMethodColor(request.method)} flex-shrink-0`}>
-                            {request.method}
-                          </span>
-                          
-                          {editingItem?.id === request.id && editingItem?.type === 'request' ? (
-                            <input
-                              type="text"
-                              value={editingName}
-                              onChange={(e) => setEditingName(e.target.value)}
-                              onBlur={handleSaveEdit}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEdit()
-                                if (e.key === 'Escape') handleCancelEdit()
-                              }}
-                              className="flex-1 px-2 py-1 text-sm bg-gray-600 border border-gray-500 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              autoFocus
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (
-                            <span className="text-sm text-gray-300 truncate">
-                              {request.name}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex-1 overflow-y-auto p-2">
+          {filteredCollections.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="mx-auto h-16 w-16 bg-gray-100 dark:bg-gray-700 rounded-2xl flex items-center justify-center mb-4">
+                <Layers className="h-8 w-8 text-gray-400 dark:text-gray-500" />
               </div>
-            )
-          })
-        )}
-      </div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-300 mb-1">No collections yet</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">User: {user?.email}</p>
+              <button
+                onClick={handleCreateCollection}
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors duration-200"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Create your first collection</span>
+              </button>
+            </div>
+          ) : (
+            filteredCollections.map(collection => {
+              const collectionFolders = getFoldersForCollection(collection.id)
+              const collectionRequests = getRequestsForCollection(collection.id)
+              const isExpanded = expandedCollections.has(collection.id)
+
+              return (
+                <DroppableCollection
+                  key={collection.id}
+                  collection={collection}
+                  folders={collectionFolders}
+                  requests={collectionRequests}
+                  isExpanded={isExpanded}
+                  expandedFolders={expandedFolders}
+                  onToggleCollection={() => toggleCollection(collection.id)}
+                  onToggleFolder={toggleFolder}
+                  onContextMenu={handleRightClick}
+                  onCreateRequest={handleCreateRequest}
+                  onCreateFolder={handleCreateFolder}
+                  editingItem={editingItem}
+                  editingName={editingName}
+                  setEditingName={setEditingName}
+                  handleSaveEdit={handleSaveEdit}
+                  handleCancelEdit={handleCancelEdit}
+                  onRequestSelect={onRequestSelect}
+                  getMethodColor={getMethodColor}
+                  canWrite={canWrite}
+                  activeId={activeId}
+                  onMenuAction={(action, item, type) => {
+                    if (action === 'duplicate') {
+                      handleDuplicateRequest(item)
+                    } else if (action === 'rename') {
+                      handleRename(item, type)
+                    } else if (action === 'delete') {
+                      handleDelete(item, type)
+                    } else if (action === 'export') {
+                      // Handle export for request if needed
+                      console.log('Export request:', item)
+                    }
+                  }}
+                />
+              )
+            })
+          )}
+        </div>
+      </DndContext>
 
       {/* Context Menu */}
       {contextMenu && (
